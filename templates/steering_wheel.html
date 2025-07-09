@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Mock Steering Wheel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .steering-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        .steering-wheel {
+            width: 300px;
+            height: 300px;
+            border: 8px solid #fff;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.1);
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+
+        .value-display {
+            background: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            min-width: 120px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            /* This will keep the text upright regardless of device rotation */
+            transform: rotate(0deg);
+            transition: all 0.1s ease;
+        }
+
+        .connection-status {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            max-width: 200px;
+        }
+
+        .connected {
+            background: rgba(0, 128, 0, 0.7) !important;
+        }
+
+        .disconnected {
+            background: rgba(128, 0, 0, 0.7) !important;
+        }
+
+        .permission-button {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #007AFF;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+        }
+
+        .permission-button:hover {
+            background: #005FCF;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 400px) {
+            .steering-wheel {
+                width: 250px;
+                height: 250px;
+            }
+            
+            .value-display {
+                font-size: 20px;
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <button class="permission-button" id="permissionButton">
+        Tap to Enable Steering
+    </button>
+    
+    <div class="steering-container hidden" id="steeringContainer">
+        <div class="steering-wheel">
+            <div class="value-display" id="steeringValue">0.000</div>
+        </div>
+        <div class="connection-status" id="connectionStatus">Initializing...</div>
+    </div>
+
+    <script>
+        class SteeringWheel {
+            constructor() {
+                this.steeringValue = 0.0;
+                this.isConnected = false;
+                this.lastSendTime = 0;
+                this.sendInterval = 100; // 100ms
+                this.sendIntervalId = null;
+                
+                this.valueDisplay = document.getElementById('steeringValue');
+                this.statusDisplay = document.getElementById('connectionStatus');
+                this.permissionButton = document.getElementById('permissionButton');
+                this.steeringContainer = document.getElementById('steeringContainer');
+                
+                this.init();
+            }
+
+            init() {
+                this.permissionButton.addEventListener('click', () => {
+                    this.requestPermissions();
+                });
+            }
+
+            async requestPermissions() {
+                this.permissionButton.textContent = 'Requesting permission...';
+                
+                try {
+                    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                        // iOS 13+ requires permission
+                        const permission = await DeviceOrientationEvent.requestPermission();
+                        if (permission === 'granted') {
+                            this.startSteering();
+                        } else {
+                            this.showError('Permission denied for device orientation');
+                        }
+                    } else if (typeof DeviceOrientationEvent !== 'undefined') {
+                        // Android or older iOS
+                        this.startSteering();
+                    } else {
+                        this.showError('Device orientation not supported');
+                    }
+                } catch (error) {
+                    this.showError('Error requesting permission: ' + error.message);
+                }
+            }
+
+            startSteering() {
+                // Hide permission button and show steering interface
+                this.permissionButton.classList.add('hidden');
+                this.steeringContainer.classList.remove('hidden');
+                
+                this.startOrientationListening();
+                this.startSendingData();
+            }
+
+            startOrientationListening() {
+                window.addEventListener('deviceorientation', (event) => {
+                    this.handleOrientation(event);
+                });
+
+                // Also listen for device motion as a fallback
+                window.addEventListener('devicemotion', (event) => {
+                    // Fallback if orientation doesn't work
+                });
+
+                this.updateStatus('Listening for orientation...');
+            }
+
+            handleOrientation(event) {
+                let beta = event.beta; // -180 to 180 degrees (front/back tilt)
+                
+                if (beta !== null && beta !== undefined) {
+                    // Beta: front/back tilt (-180 to 180)
+                    // For landscape orientation, we want to use a smaller range around 0
+                    // and invert the values so clockwise = +1, counterclockwise = -1
+                    let maxAngle = 45; // Smaller range for better sensitivity
+                    let clampedValue = Math.max(-maxAngle, Math.min(maxAngle, beta));
+                    // Invert the value: negative beta (tilt up/clockwise) = positive steering
+                    this.steeringValue = -clampedValue / maxAngle;
+                    
+                    // Update display
+                    this.updateDisplay();
+                    // Only update status if we're connected - don't override error messages
+                    if (this.isConnected) {
+                        this.updateStatus('Connected', true);
+                    }
+                }
+            }
+
+            updateDisplay() {
+                // Keep the text upright by counter-rotating based on device orientation
+                let displayValue = this.steeringValue.toFixed(3);
+                this.valueDisplay.textContent = displayValue;
+                
+                // Optional: Add visual indication of steering direction
+                let hue = this.steeringValue > 0 ? 120 - (this.steeringValue * 60) : 120 + (Math.abs(this.steeringValue) * 60);
+                this.valueDisplay.style.backgroundColor = `hsla(${hue}, 70%, 20%, 0.9)`;
+            }
+
+            startSendingData() {
+                this.sendIntervalId = setInterval(() => {
+                    this.sendSteeringValue();
+                }, this.sendInterval);
+            }
+
+            async sendSteeringValue() {
+                try {
+                    const url = `https://${window.location.host}/UpdateSteering?value=${this.steeringValue.toFixed(6)}`;
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        mode: 'cors',
+                        credentials: 'same-origin'
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.status === 'success') {
+                            this.isConnected = true;
+                            this.updateStatus('Connected', true);
+                        }
+                    } else {
+                        throw new Error(`Not Connected`);
+                    }
+                } catch (error) {
+                    this.isConnected = false;
+                    this.updateStatus(`Error: ${error.message}`, false);
+                }
+            }
+
+            updateStatus(message, connected = null) {
+                this.statusDisplay.textContent = message;
+                
+                if (connected !== null) {
+                    this.statusDisplay.className = connected ? 'connection-status connected' : 'connection-status disconnected';
+                }
+            }
+
+            showError(message) {
+                this.updateStatus(`Error: ${message}`, false);
+                this.permissionButton.textContent = 'Error - Tap to Retry';
+                this.permissionButton.classList.remove('hidden');
+                this.steeringContainer.classList.add('hidden');
+                console.error(message);
+            }
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new SteeringWheel();
+        });
+
+        // Prevent scrolling and zooming on mobile
+        document.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+        }, { passive: false });
+
+        document.addEventListener('gesturestart', (e) => {
+            e.preventDefault();
+        });
+
+        document.addEventListener('gesturechange', (e) => {
+            e.preventDefault();
+        });
+
+        document.addEventListener('gestureend', (e) => {
+            e.preventDefault();
+        });
+    </script>
+</body>
+</html>

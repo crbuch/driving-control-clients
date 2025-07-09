@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pedals</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            font-family: Arial, sans-serif;
+        }
+
+        .pedals-container {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .pedal-section {
+            width: 50vw;
+            height: 100vh;
+            position: relative;
+            border: 2px solid white;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .pedal-track {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .pedal-handle {
+            width: 100%;
+            height: 25vh;
+            position: absolute;
+            bottom: 0;
+            border-radius: 5px;
+            cursor: pointer;
+            user-select: none;
+            touch-action: none;
+        }
+
+        .gas-handle {
+            background: rgba(0, 128, 0, 0.8);
+        }
+
+        .brake-handle {
+            background: rgba(128, 0, 0, 0.8);
+        }
+
+        .value-display {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="pedals-container">
+        <div class="pedal-section">
+            <div class="pedal-track">
+                <div class="pedal-handle gas-handle" id="gasHandle"></div>
+                <div class="value-display" id="gasValue">Gas: 0.000</div>
+            </div>
+        </div>
+        <div class="pedal-section">
+            <div class="pedal-track">
+                <div class="pedal-handle brake-handle" id="brakeHandle"></div>
+                <div class="value-display" id="brakeValue">Brake: 0.000</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class SimplePedals {
+            constructor() {
+                this.gasValue = 0.0;
+                this.brakeValue = 0.0;
+                this.sendInterval = 100;
+
+                this.gasHandle = document.getElementById('gasHandle');
+                this.brakeHandle = document.getElementById('brakeHandle');
+                this.gasDisplay = document.getElementById('gasValue');
+                this.brakeDisplay = document.getElementById('brakeValue');
+
+                this.isDragging = false;
+                this.currentHandle = null;
+
+                this.init();
+            }
+
+            init() {
+                this.setupHandle(this.gasHandle, 'gas');
+                this.setupHandle(this.brakeHandle, 'brake');
+                this.startSendingData();
+            }
+
+            setupHandle(handle, type) {
+                handle.addEventListener('touchstart', (e) => this.startDrag(e, handle, type));
+                handle.addEventListener('touchmove', (e) => this.drag(e, handle, type));
+                handle.addEventListener('touchend', (e) => this.endDrag(handle, type));
+                
+                // Mouse events for desktop testing
+                handle.addEventListener('mousedown', (e) => this.startDrag(e, handle, type));
+                document.addEventListener('mousemove', (e) => this.drag(e, handle, type));
+                document.addEventListener('mouseup', (e) => this.endDrag(handle, type));
+            }
+
+            startDrag(e, handle, type) {
+                e.preventDefault();
+                this.isDragging = true;
+                this.currentHandle = handle;
+                this.currentType = type;
+                
+                // Calculate the initial offset where the user touched within the handle
+                const touch = e.touches ? e.touches[0] : e;
+                const handleRect = handle.getBoundingClientRect();
+                this.touchOffset = touch.clientY - handleRect.top;
+            }
+
+            drag(e, handle, type) {
+                if (!this.isDragging || this.currentHandle !== handle) return;
+                
+                e.preventDefault();
+                
+                const touch = e.touches ? e.touches[0] : e;
+                const track = handle.parentElement;
+                const trackRect = track.getBoundingClientRect();
+                const handleHeight = handle.offsetHeight;
+                
+                // Calculate position from bottom, accounting for where user initially touched
+                const mouseY = touch.clientY - this.touchOffset;
+                const trackBottom = trackRect.bottom;
+                const distanceFromBottom = trackBottom - mouseY - handleHeight;
+                
+                // Clamp the distance
+                const maxDistance = trackRect.height - handleHeight;
+                const clampedDistance = Math.max(0, Math.min(maxDistance, distanceFromBottom));
+                
+                // Calculate value (0 to 1)
+                const value = clampedDistance / maxDistance;
+                
+                // Update position
+                handle.style.bottom = clampedDistance + 'px';
+                
+                // Update value
+                if (type === 'gas') {
+                    this.gasValue = value;
+                    this.gasDisplay.textContent = `Gas: ${value.toFixed(3)}`;
+                } else {
+                    this.brakeValue = value;
+                    this.brakeDisplay.textContent = `Brake: ${value.toFixed(3)}`;
+                }
+            }
+
+            endDrag(handle, type) {
+                if (!this.isDragging || this.currentHandle !== handle) return;
+                
+                this.isDragging = false;
+                this.currentHandle = null;
+                
+                // Animate back to bottom
+                handle.style.transition = 'bottom 0.3s ease';
+                handle.style.bottom = '0px';
+                
+                setTimeout(() => {
+                    handle.style.transition = '';
+                }, 300);
+                
+                // Reset value
+                if (type === 'gas') {
+                    this.gasValue = 0.0;
+                    this.gasDisplay.textContent = 'Gas: 0.000';
+                } else {
+                    this.brakeValue = 0.0;
+                    this.brakeDisplay.textContent = 'Brake: 0.000';
+                }
+            }
+
+            startSendingData() {
+                setInterval(() => {
+                    this.sendPedalValues();
+                }, this.sendInterval);
+            }
+
+            async sendPedalValues() {
+                try {
+                    const url = `/UpdatePedals?gas=${this.gasValue.toFixed(6)}&brake=${this.brakeValue.toFixed(6)}`;
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                } catch (error) {
+                    console.error('Failed to send pedal values:', error);
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            new SimplePedals();
+        });
+    </script>
+</body>
+</html>
