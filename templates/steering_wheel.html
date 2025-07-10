@@ -103,25 +103,6 @@
             display: none;
         }
 
-        /* Force landscape layout even if orientation changes */
-        @media screen and (orientation: portrait) {
-            body::before {
-                content: "Please rotate your device to landscape mode for the best experience";
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                background: rgba(0, 0, 0, 0.9);
-                color: white;
-                padding: 20px;
-                border-radius: 10px;
-                text-align: center;
-                z-index: 9999;
-                font-size: 16px;
-                max-width: 80%;
-            }
-        }
-
         /* Responsive adjustments */
         @media (max-width: 400px) {
             .steering-wheel {
@@ -138,12 +119,12 @@
 </head>
 <body>
     <button class="permission-button" id="permissionButton">
-        Tap for Fullscreen & Landscape Lock
+        Tap to Start Steering
     </button>
     
     <div class="steering-container hidden" id="steeringContainer">
         <div class="steering-wheel">
-            <div class="value-display" id="steeringValue">0.000</div>
+            <div class="value-display" id="steeringValue">0.0°</div>
         </div>
         <div class="connection-status" id="connectionStatus">Initializing...</div>
     </div>
@@ -175,12 +156,6 @@
                 this.permissionButton.textContent = 'Requesting permission...';
                 
                 try {
-                    // First, enter fullscreen mode
-                    await this.enterFullscreen();
-                    
-                    // Then try to lock orientation to landscape
-                    await this.lockOrientationToLandscape();
-                    
                     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                         // iOS 13+ requires permission
                         const permission = await DeviceOrientationEvent.requestPermission();
@@ -197,79 +172,6 @@
                     }
                 } catch (error) {
                     this.showError('Error requesting permission: ' + error.message);
-                }
-            }
-
-            async enterFullscreen() {
-                try {
-                    const element = document.documentElement;
-                    
-                    if (element.requestFullscreen) {
-                        await element.requestFullscreen();
-                        console.log('Entered fullscreen using requestFullscreen');
-                    } else if (element.webkitRequestFullscreen) {
-                        await element.webkitRequestFullscreen();
-                        console.log('Entered fullscreen using webkitRequestFullscreen');
-                    } else if (element.mozRequestFullScreen) {
-                        await element.mozRequestFullScreen();
-                        console.log('Entered fullscreen using mozRequestFullScreen');
-                    } else if (element.msRequestFullscreen) {
-                        await element.msRequestFullscreen();
-                        console.log('Entered fullscreen using msRequestFullscreen');
-                    } else {
-                        console.log('Fullscreen not supported');
-                        return;
-                    }
-                    
-                    // Wait a bit for fullscreen to take effect
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                } catch (error) {
-                    console.log('Failed to enter fullscreen:', error.message);
-                    // Continue anyway - fullscreen is nice-to-have for orientation lock
-                }
-            }
-
-            async lockOrientationToLandscape() {
-                try {
-                    // Try modern Screen Orientation API first with different landscape options
-                    if (screen.orientation && screen.orientation.lock) {
-                        // Try landscape-primary first, then fallback to general landscape
-                        try {
-                            await screen.orientation.lock('landscape-primary');
-                            console.log('Screen locked to landscape-primary');
-                            return;
-                        } catch (e) {
-                            await screen.orientation.lock('landscape');
-                            console.log('Screen locked to landscape');
-                            return;
-                        }
-                    }
-                    
-                    // Fallback for older browsers
-                    if (screen.lockOrientation) {
-                        screen.lockOrientation(['landscape-primary', 'landscape-secondary', 'landscape']);
-                        console.log('Screen locked to landscape using lockOrientation');
-                        return;
-                    }
-                    
-                    // Webkit fallback
-                    if (screen.webkitLockOrientation) {
-                        screen.webkitLockOrientation(['landscape-primary', 'landscape-secondary', 'landscape']);
-                        console.log('Screen locked to landscape using webkitLockOrientation');
-                        return;
-                    }
-                    
-                    // Mozilla fallback
-                    if (screen.mozLockOrientation) {
-                        screen.mozLockOrientation(['landscape-primary', 'landscape-secondary', 'landscape']);
-                        console.log('Screen locked to landscape using mozLockOrientation');
-                        return;
-                    }
-                    
-                    console.log('Screen orientation lock not supported on this device/browser');
-                } catch (error) {
-                    console.log('Failed to lock screen orientation:', error.message);
-                    // Don't throw error - orientation lock is nice-to-have, not required
                 }
             }
 
@@ -296,16 +198,12 @@
             }
 
             handleOrientation(event) {
-                let beta = event.beta; // -180 to 180 degrees (front/back tilt)
+                let alpha = event.alpha; // 0 to 360 degrees (compass/yaw rotation)
                 
-                if (beta !== null && beta !== undefined) {
-                    // Beta: front/back tilt (-180 to 180)
-                    // For landscape orientation, we want to use a smaller range around 0
-                    // and invert the values so clockwise = +1, counterclockwise = -1
-                    let maxAngle = 45; // Smaller range for better sensitivity
-                    let clampedValue = Math.max(-maxAngle, Math.min(maxAngle, beta));
-                    // Invert the value: negative beta (tilt up/clockwise) = positive steering
-                    this.steeringValue = -clampedValue / maxAngle;
+                if (alpha !== null && alpha !== undefined) {
+                    // Alpha: compass direction (0 to 360 degrees)
+                    // Use the full range for steering wheel rotation
+                    this.steeringValue = alpha ;
                     
                     // Update display
                     this.updateDisplay();
@@ -317,12 +215,12 @@
             }
 
             updateDisplay() {
-                // Keep the text upright by counter-rotating based on device orientation
-                let displayValue = this.steeringValue.toFixed(3);
+                // Display the full angle in degrees
+                let displayValue = `${this.steeringValue.toFixed(1)}°`;
                 this.valueDisplay.textContent = displayValue;
                 
-                // Optional: Add visual indication of steering direction
-                let hue = this.steeringValue > 0 ? 120 - (this.steeringValue * 60) : 120 + (Math.abs(this.steeringValue) * 60);
+                // Optional: Add visual indication of steering direction based on angle
+                let hue = (this.steeringValue) % 360; // Use the angle directly for hue
                 this.valueDisplay.style.backgroundColor = `hsla(${hue}, 70%, 20%, 0.9)`;
             }
 
@@ -334,7 +232,7 @@
 
             async sendSteeringValue() {
                 try {
-                    const url = `https://${window.location.host}/UpdateSteering?value=${this.steeringValue.toFixed(6)}`;
+                    const url = `https://${window.location.host}/UpdateSteering?value=${this.steeringValue.toFixed(1)}`;
                     const response = await fetch(url, {
                         method: 'GET',
                         mode: 'cors',
@@ -370,27 +268,9 @@
                 this.permissionButton.classList.remove('hidden');
                 this.steeringContainer.classList.add('hidden');
                 
-                // Exit fullscreen on error
-                this.exitFullscreen();
-                
                 console.error(message);
             }
 
-            exitFullscreen() {
-                try {
-                    if (document.exitFullscreen) {
-                        document.exitFullscreen();
-                    } else if (document.webkitExitFullscreen) {
-                        document.webkitExitFullscreen();
-                    } else if (document.mozCancelFullScreen) {
-                        document.mozCancelFullScreen();
-                    } else if (document.msExitFullscreen) {
-                        document.msExitFullscreen();
-                    }
-                } catch (error) {
-                    console.log('Failed to exit fullscreen:', error.message);
-                }
-            }
         }
 
         // Initialize when page loads
