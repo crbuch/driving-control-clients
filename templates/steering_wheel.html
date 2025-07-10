@@ -103,6 +103,25 @@
             display: none;
         }
 
+        /* Force landscape layout even if orientation changes */
+        @media screen and (orientation: portrait) {
+            body::before {
+                content: "Please rotate your device to landscape mode for the best experience";
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0, 0, 0, 0.9);
+                color: white;
+                padding: 20px;
+                border-radius: 10px;
+                text-align: center;
+                z-index: 9999;
+                font-size: 16px;
+                max-width: 80%;
+            }
+        }
+
         /* Responsive adjustments */
         @media (max-width: 400px) {
             .steering-wheel {
@@ -119,7 +138,7 @@
 </head>
 <body>
     <button class="permission-button" id="permissionButton">
-        Tap to Enable Steering
+        Tap for Fullscreen & Landscape Lock
     </button>
     
     <div class="steering-container hidden" id="steeringContainer">
@@ -156,6 +175,12 @@
                 this.permissionButton.textContent = 'Requesting permission...';
                 
                 try {
+                    // First, enter fullscreen mode
+                    await this.enterFullscreen();
+                    
+                    // Then try to lock orientation to landscape
+                    await this.lockOrientationToLandscape();
+                    
                     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                         // iOS 13+ requires permission
                         const permission = await DeviceOrientationEvent.requestPermission();
@@ -172,6 +197,79 @@
                     }
                 } catch (error) {
                     this.showError('Error requesting permission: ' + error.message);
+                }
+            }
+
+            async enterFullscreen() {
+                try {
+                    const element = document.documentElement;
+                    
+                    if (element.requestFullscreen) {
+                        await element.requestFullscreen();
+                        console.log('Entered fullscreen using requestFullscreen');
+                    } else if (element.webkitRequestFullscreen) {
+                        await element.webkitRequestFullscreen();
+                        console.log('Entered fullscreen using webkitRequestFullscreen');
+                    } else if (element.mozRequestFullScreen) {
+                        await element.mozRequestFullScreen();
+                        console.log('Entered fullscreen using mozRequestFullScreen');
+                    } else if (element.msRequestFullscreen) {
+                        await element.msRequestFullscreen();
+                        console.log('Entered fullscreen using msRequestFullscreen');
+                    } else {
+                        console.log('Fullscreen not supported');
+                        return;
+                    }
+                    
+                    // Wait a bit for fullscreen to take effect
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                } catch (error) {
+                    console.log('Failed to enter fullscreen:', error.message);
+                    // Continue anyway - fullscreen is nice-to-have for orientation lock
+                }
+            }
+
+            async lockOrientationToLandscape() {
+                try {
+                    // Try modern Screen Orientation API first with different landscape options
+                    if (screen.orientation && screen.orientation.lock) {
+                        // Try landscape-primary first, then fallback to general landscape
+                        try {
+                            await screen.orientation.lock('landscape-primary');
+                            console.log('Screen locked to landscape-primary');
+                            return;
+                        } catch (e) {
+                            await screen.orientation.lock('landscape');
+                            console.log('Screen locked to landscape');
+                            return;
+                        }
+                    }
+                    
+                    // Fallback for older browsers
+                    if (screen.lockOrientation) {
+                        screen.lockOrientation(['landscape-primary', 'landscape-secondary', 'landscape']);
+                        console.log('Screen locked to landscape using lockOrientation');
+                        return;
+                    }
+                    
+                    // Webkit fallback
+                    if (screen.webkitLockOrientation) {
+                        screen.webkitLockOrientation(['landscape-primary', 'landscape-secondary', 'landscape']);
+                        console.log('Screen locked to landscape using webkitLockOrientation');
+                        return;
+                    }
+                    
+                    // Mozilla fallback
+                    if (screen.mozLockOrientation) {
+                        screen.mozLockOrientation(['landscape-primary', 'landscape-secondary', 'landscape']);
+                        console.log('Screen locked to landscape using mozLockOrientation');
+                        return;
+                    }
+                    
+                    console.log('Screen orientation lock not supported on this device/browser');
+                } catch (error) {
+                    console.log('Failed to lock screen orientation:', error.message);
+                    // Don't throw error - orientation lock is nice-to-have, not required
                 }
             }
 
@@ -271,7 +369,27 @@
                 this.permissionButton.textContent = 'Error - Tap to Retry';
                 this.permissionButton.classList.remove('hidden');
                 this.steeringContainer.classList.add('hidden');
+                
+                // Exit fullscreen on error
+                this.exitFullscreen();
+                
                 console.error(message);
+            }
+
+            exitFullscreen() {
+                try {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) {
+                        document.webkitExitFullscreen();
+                    } else if (document.mozCancelFullScreen) {
+                        document.mozCancelFullScreen();
+                    } else if (document.msExitFullscreen) {
+                        document.msExitFullscreen();
+                    }
+                } catch (error) {
+                    console.log('Failed to exit fullscreen:', error.message);
+                }
             }
         }
 
